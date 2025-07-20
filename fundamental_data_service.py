@@ -19,7 +19,7 @@ import news_scraper_google
 import news_scalper_cnbc
 
 # Import config (untuk API keys seperti cookie string)
-import config
+from config import config
 import database_manager
 import notification_service
 

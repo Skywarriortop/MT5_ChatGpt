@@ -173,7 +173,7 @@ class Config:
         # Interval update untuk berbagai loop dalam aplikasi (dalam detik).
         # Nilai default ini akan di-override dari .env di validate_config.
         UPDATE_INTERVALS = {
-            "periodic_realtime_tick_loop": 5.0,
+            "periodic_realtime_tick_loop": 300.0,
             "periodic_session_data_update_loop": 300.0,
             "periodic_market_status_update_loop": 60.0,
             "periodic_mt5_trade_data_update_loop": 10.0,
@@ -205,7 +205,7 @@ class Config:
             "periodic_historical_data_update_loop": True,
             "periodic_volume_profile_update_loop": True,
             "periodic_combined_advanced_detection_loop": True,
-            "periodic_fundamental_data_update_loop": True,
+            "periodic_fundamental_data_update_loop": False,
             "rule_based_signal_loop": True,
             "daily_summary_report_loop": True,
             "monthly_historical_feature_backfill_loop": True,

@@ -7,27 +7,47 @@ import threading
 import time
 from datetime import datetime, timezone, timedelta
 import pandas as pd
-from api_routes import DashboardLogHandler, create_app
-from decimal import Decimal
+from api_routes import DashboardLogHandler, create_app # create_app juga diimpor di sini
+from decimal import Decimal # <--- TAMBAHKAN BARIS INI
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 # Impor modul lain yang dibutuhkan
-import config
-import database_manager
-import notification_service
-import mt5_connector
-import scheduler
-import market_data_processor
-import fundamental_data_service
-import ai_analyzer
-import ai_consensus_manager
-import api_routes
-import detector_monitoring
+import config # Ini mengimpor modul config.py
+import database_manager #
+import notification_service #
+import mt5_connector #
+import scheduler # Diperlukan untuk mengakses _feature_backfill_completed
+import market_data_processor #
+import fundamental_data_service #
+import ai_analyzer #
+import ai_consensus_manager #
+import api_routes # <--- Pastikan ini diimpor untuk mengakses fungsi emitter
+import detector_monitoring # <--- TAMBAHKAN INI
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+load_dotenv(os.path.join(basedir, '.env'))
+
+
+# PENTING: INSTANSIASI OBJEK CONFIG SEGERA SETELAH IMPOR MODULNYA
+# Ini memastikan objek `my_app_config` (instance dari kelas Config) tersedia
+# segera setelah modul `config` diimpor dan kode di dalamnya dieksekusi.
+my_app_config = config.Config()
+my_app_config.validate_config()
+
+# Variabel global untuk melacak status inisialisasi DB
+_db_initialized_event = threading.Event()
+
+# Pastikan output konsol mendukung UTF-8
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', buffering=1)
+if sys.stderr.encoding != 'utf-s':
+    sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf-8', buffering=1)
+
 
 # --- Konfigurasi Logging yang Disempurnakan ---
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger()
 for handler in logger.handlers[:]:
     logger.removeHandler(handler)
@@ -35,6 +55,7 @@ logger.propagate = False
 
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
+# --- KOREKSI TYPO: Tambahkan tanda kurung () pada logging.Formatter ---
 console_formatter = logging.Formatter('%(asctime)s - %(threadName)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(console_formatter)
 logger.addHandler(console_handler)
@@ -77,22 +98,7 @@ logging.getLogger('telegram.ext').setLevel(logging.DEBUG)
 logging.getLogger('httpx').setLevel(logging.DEBUG)
 logging.getLogger('telegram').setLevel(logging.DEBUG)
 logging.getLogger('ai_consensus_manager').setLevel(logging.DEBUG)
-logging.getLogger('detector_monitoring').setLevel(logging.DEBUG)
-
-# PENTING: INSTANSIASI OBJEK CONFIG SEGERA SETELAH IMPOR MODULNYA
-# Ini memastikan objek `my_app_config` (instance dari kelas Config) tersedia
-# segera setelah modul `config` diimpor dan kode di dalamnya dieksekusi.
-my_app_config = config.Config()
-my_app_config.validate_config()
-
-# Variabel global untuk melacak status inisialisasi DB
-_db_initialized_event = threading.Event()
-
-# Pastikan output konsol mendukung UTF-8
-if sys.stdout.encoding != 'utf-8':
-    sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', buffering=1)
-if sys.stderr.encoding != 'utf-s': # Ini seharusnya 'utf-8' bukan 'utf-s'
-    sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf-8', buffering=1) # Mengubah 'utf-s' ke 'utf-8'
+logging.getLogger('detector_monitoring').setLevel(logging.DEBUG) # <--- TAMBAHKAN INI
 
 # --- FUNGSI UTAMA UNTUK INISIALISASI APLIKASI ---
 
@@ -317,8 +323,10 @@ def initialize_application_components():
 
     logger.info("Inisialisasi aplikasi selesai di background thread.")
     
+    # --- TAMBAHKAN BARIS INI (Setel bendera di scheduler setelah backfill selesai) ---
     scheduler._feature_backfill_completed = True
     logger.info("Flag _feature_backfill_completed diatur ke True. Loop bergantung akan mulai bekerja.")
+    # --- AKHIR PENAMBAHAN ---
 
     logger.info("Inisialisasi aplikasi selesai di background thread.")
 
@@ -333,12 +341,12 @@ if __name__ == '__main__':
 
     # Start app initialization in a separate thread
     app_init_thread = threading.Thread(target=initialize_application_components, name="AppInitThread")
-    app_init_thread.daemon = True
+    app_init_thread.daemon = True # Daemon thread will exit when main program exits
     app_init_thread.start()
 
     # Wait for the initialization thread to complete
     logger.info("Menunggu inisialisasi database dan backfill fitur awal selesai...")
-    INIT_TIMEOUT_SECONDS = 3600 * 24 * 2
+    INIT_TIMEOUT_SECONDS = 3600 * 24 * 2 # Meningkatkan timeout menjadi 4 jam (14400 detik) untuk backfill yang panjang
     if not _db_initialized_event.wait(timeout=INIT_TIMEOUT_SECONDS):
         logger.critical(f"Inisialisasi database dan backfill fitur awal gagal dalam batas waktu ({INIT_TIMEOUT_SECONDS} detik). Aplikasi akan keluar.")
         notification_service.notify_error(f"Inisialisasi database timeout. Aplikasi berhenti.", "DB Init Timeout")
@@ -369,11 +377,14 @@ if __name__ == '__main__':
         notification_service.stop_notification_service()
         # Hentikan emitter progress WebSocket
         api_routes.stop_backfill_progress_emitter()
+        # --- PERUBAHAN: Pastikan DB Writer Thread dihentikan dengan rapi ---
         logger.info("Menunggu semua tugas database writer selesai...")
+        # Memberikan waktu yang cukup bagi writer untuk menyelesaikan antrean
         database_manager._db_write_queue.join(timeout=120)
         if not database_manager._db_write_queue.empty():
             logger.warning("Database write queue tidak kosong saat shutdown. Mungkin ada tugas yang tidak sempat diproses! Meningkatkan timeout join jika ini sering terjadi.")
         database_manager.stop_db_writer()
+        # --- AKHIR PERUBAHAN ---
         notification_service.notify_app_stop()
         logger.info("Aplikasi telah dihentikan dengan bersih.")
         sys.exit(0)

@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 import threading
 
-import config
+from config import config
 import notification_service
 import utils
 import market_data_processor

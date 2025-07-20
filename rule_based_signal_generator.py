@@ -10,7 +10,7 @@ import talib # Pastikan TA-Lib terinstal
 import time # Untuk sleep jika diperlukan, tapi sebaiknya di scheduler
 from collections import defaultdict
 import database_manager
-import config
+from config import config # Pastikan config diimpor
 import mt5_connector
 import market_data_processor # Pastikan ini diimpor
 import utils # Pastikan utils diimpor
@@ -1209,6 +1209,18 @@ def _calculate_price_levels_from_logic(logic_str: str, action: str, context: dic
                 if fib_50:
                     return fib_50['price_level']
             return None
+            
+
+
+
+
+
+
+
+
+
+
+
             
 
 

@@ -13,10 +13,10 @@ import queue
 from enum import Enum
 import os
 import mt5_connector
-import config
+from config import config
 import database_manager
 import utils
-from utils import to_float_or_none, to_iso_format_or_none , to_decimal_or_none, to_int_or_none, to_bool_or_none, _get_scalar_from_possibly_ndarray , _get_pandas_freq_alias , DistributionData , _get_available_volume_series # <-- TAMBAH INI
+from utils import to_float_or_none, to_iso_format_or_none , to_decimal_or_none, to_int_or_none, to_bool_or_none, _get_scalar_from_possibly_ndarray , _get_pandas_freq_alias , DistributionData 
 import detector_monitoring
 import numpy as np
 import math
@@ -1615,28 +1615,25 @@ def update_volume_profiles(symbol_param: str, timeframe_str: str, candles_df: pd
     try:
         df_processed_candles = candles_df.copy()
         # --- START PERBAIKAN: Ganti nama kolom untuk konsistensi ---
-        # Ini penting agar _get_available_volume_series dapat menemukan kolom 'real_volume'/'tick_volume'
-        # dan _calculate_volume_profile_internal dapat menggunakan nama kolom 'open', 'high', dll.
         df_processed_candles = df_processed_candles.rename(columns={
             'open_price': 'open',
             'high_price': 'high',
             'low_price': 'low',
             'close_price': 'close',
-            'tick_volume': 'tick_volume', # Pastikan nama ini tetap 'tick_volume'
-            'real_volume': 'real_volume', # Pastikan nama ini tetap 'real_volume'
-            'spread': 'spread'
+            'tick_volume': 'volume', # Juga ganti nama 'tick_volume' menjadi 'volume'
+            'real_volume': 'real_volume', # Tambahkan ini jika ada
+            'spread': 'spread' # Tambahkan ini jika ada
         })
         # --- AKHIR PERBAIKAN ---
 
-        # Konversi kolom-kolom harga dan volume ke Decimal
-        for col in ['open', 'high', 'low', 'close', 'tick_volume', 'real_volume', 'spread']:
-            if col in df_processed_candles.columns:
-                df_processed_candles[col] = df_processed_candles[col].apply(utils.to_decimal_or_none).fillna(Decimal('0.0'))
+        # KOREKSI: HANYA konversi kolom harga dan volume ke Decimal
+        for col in ['open', 'high', 'low', 'close', 'volume', 'real_volume', 'spread']: # <--- PASTIKAN LIST KOLOM INI
+            if col in df_processed_candles.columns: # Pastikan kolom ada
+                df_processed_candles[col] = df_processed_candles[col].apply(lambda x: Decimal(str(x)) if pd.notna(x) else np.nan) # Gunakan np.nan untuk nilai yang hilang
         
         if not isinstance(df_processed_candles.index, pd.DatetimeIndex):
             df_processed_candles['open_time_utc'] = pd.to_datetime(df_processed_candles.index)
-            df_processed_candles.set_index('open_time_utc', inplace=True)
-            df_processed_candles.sort_index(inplace=True)
+            df_processed_candles = df_processed_candles.set_index('open_time_utc').sort_index()
 
         period_start = df_processed_candles.index.min().to_pydatetime()
         period_end = df_processed_candles.index.max().to_pydatetime()
@@ -1678,15 +1675,8 @@ def update_volume_profiles(symbol_param: str, timeframe_str: str, candles_df: pd
 
         row_height_for_vp_calc = float(price_granularity_value) 
 
-        # --- PERUBAHAN UTAMA DI SINI: Dapatkan Series volume terbaik dari fungsi pembantu ---
-        # Ini akan memilih 'real_volume' jika ada, atau 'tick_volume' jika tidak
-        volume_series_for_vp_calc = utils._get_available_volume_series(df_processed_candles.copy(), timeframe_str)
-        # Tambahkan kolom 'volume' ke df_processed_candles dari volume_series_for_vp_calc
-        df_processed_candles['volume'] = volume_series_for_vp_calc
-        # --- AKHIR PERUBAHAN UTAMA ---
-
         normal_profile_df, buy_sell_profile_df, delta_profile_df = _calculate_volume_profile_internal(
-            df_interval_ohlcv=df_processed_candles, # Menggunakan DataFrame yang sudah disiapkan dengan kolom 'volume' terbaik
+            df_interval_ohlcv=df_processed_candles, 
             df_interval_ticks=df_ticks, 
             row_height=row_height_for_vp_calc,
             distribution=distribution_method
@@ -1719,9 +1709,14 @@ def update_volume_profiles(symbol_param: str, timeframe_str: str, candles_df: pd
                 else:
                     total_volume = Decimal('0')
 
+                poc_price = to_decimal_or_none(poc_price) or Decimal('0')
+                vah_price = to_decimal_or_none(vah_price) or Decimal('0')
+                val_price = to_decimal_or_none(val_price) or Decimal('0')
+                total_volume = to_decimal_or_none(total_volume) or Decimal('0')
+
                 for idx, row in normal_profile_df.iterrows():
-                    price_val = utils.to_decimal_or_none(row['vp_prices']) or Decimal('0')
-                    volume_val = utils.to_decimal_or_none(row['vp_normal']) or Decimal('0')
+                    price_val = to_decimal_or_none(row['vp_prices']) or Decimal('0')
+                    volume_val = to_decimal_or_none(row['vp_normal']) or Decimal('0')
                     profile_data_list.append({
                         "price": float(price_val), 
                         "volume": float(volume_val)
@@ -1795,7 +1790,7 @@ def update_volume_profiles(symbol_param: str, timeframe_str: str, candles_df: pd
         logger.error(f"Gagal menghitung atau menyimpan Volume Profile untuk {timeframe_str}: {e}", exc_info=True)
         return processed_count 
     logger.info(f"Selesai menghitung Volume Profiles untuk {symbol_param} {timeframe_str}.")
-    return processed_count
+    return processed_count 
 
 
 def _calculate_liquidity_zones_internal(ohlc_df: pd.DataFrame, swing_highs_lows_df: pd.DataFrame, range_percent: float = 0.01) -> pd.DataFrame:
@@ -6705,18 +6700,10 @@ def _backfill_worker_thread(task_queue, symbol_param):
             task_queue.task_done()
 
 
-
-
 def _detect_new_order_blocks_historically(symbol_param: str, timeframe_str: str, candles_df: pd.DataFrame, current_atr_value: Decimal):
     """
     Mendeteksi Order Blocks (OB) baru secara historis.
-    Menyimpan OB baru ke database secara batch dengan deduplikasi.
-    Menggunakan ATR adaptif dan faktor-faktor lain untuk menghitung strength_score.
-    Args:
-        symbol_param (str): Simbol trading.
-        timeframe_str (str): Timeframe.
-        candles_df (pd.DataFrame): DataFrame candle historis (sudah dalam format float).
-        current_atr_value (Decimal): Nilai ATR saat ini untuk timeframe ini.
+    ...
     """
     logger.info(f"Mendeteksi Order Blocks BARU historis untuk {symbol_param} {timeframe_str}...")
     processed_count = 0 
@@ -6735,7 +6722,7 @@ def _detect_new_order_blocks_historically(symbol_param: str, timeframe_str: str,
     # Ambil parameter konfigurasi baru
     ob_min_impulsive_candle_body_percent = config.RuleBasedStrategy.OB_MIN_IMPULSIVE_CANDLE_BODY_PERCENT
     ob_min_impulsive_move_multiplier = config.RuleBasedStrategy.OB_MIN_IMPULSIVE_MOVE_MULTIPLIER
-    ob_volume_factor_multiplier = config.RuleBasedStrategy.OB_VOLUME_FACTOR_MULTIPLIER # <--- Multiplier ini akan disesuaikan dari main.py
+    ob_volume_factor_multiplier = config.RuleBasedStrategy.OB_VOLUME_FACTOR_MULTIPLIER
 
     # Buat salinan DataFrame dan konversi kolom harga ke float untuk perhitungan internal
     # Catatan: candles_df yang masuk ke sini sudah di-rename kolomnya dan float dari _backfill_single_timeframe_features
@@ -6744,11 +6731,12 @@ def _detect_new_order_blocks_historically(symbol_param: str, timeframe_str: str,
     # Rename kolom dan konversi ke float untuk df_processed
     df_processed = df_processed.rename(columns={
         'open_price': 'open', 'high_price': 'high', 'low_price': 'low',
-        'close_price': 'close', 'tick_volume': 'tick_volume', 'real_volume': 'real_volume', 'spread': 'spread' # <--- Pastikan nama kolom asli untuk volume
+        'close_price': 'close', 'tick_volume': 'volume', 'real_volume': 'real_volume', 'spread': 'spread'
     })
     # KOREKSI PENTING DI SINI: Pastikan konversi ke float juga menangani NaN dari Decimal
-    for col in ['open', 'high', 'low', 'close', 'tick_volume', 'real_volume', 'spread']:
+    for col in ['open', 'high', 'low', 'close', 'volume', 'real_volume', 'spread']:
         if col in df_processed.columns:
+            # Gunakan utils.to_float_or_none yang sudah robust
             df_processed[col] = df_processed[col].apply(utils.to_float_or_none)
             
             # <<< PENAMBAHAN PENTING INI >>>
@@ -6766,6 +6754,185 @@ def _detect_new_order_blocks_historically(symbol_param: str, timeframe_str: str,
         logger.warning(f"OB Detektor: DataFrame df_processed kosong setelah renaming/konversi/dropna. Melewatkan deteksi OB untuk {timeframe_str}.")
         return 0
     
+    # Deduplikasi: Ambil Order Blocks yang sudah ada di DB
+    existing_ob_keys = set()
+    try:
+        existing_obs_db = database_manager.get_order_blocks(
+            symbol=symbol_param,
+            timeframe=timeframe_str,
+            start_time_utc=df_processed.index.min().to_pydatetime()
+        )
+        for ob_item in existing_obs_db:
+            formation_time_dt = utils.to_utc_datetime_or_none(ob_item['formation_time_utc'])
+            if formation_time_dt:
+                ob_type_str = ob_item['type']
+                existing_ob_keys.add((
+                    ob_item['symbol'], ob_item['timeframe'],
+                    ob_type_str, formation_time_dt.replace(microsecond=0).isoformat()
+                ))
+        logger.debug(f"Ditemukan {len(existing_ob_keys)} Order Blocks yang sudah ada di DB untuk {timeframe_str}.")
+    except Exception as e:
+        logger.error(f"Gagal mengambil existing Order Blocks dari DB untuk pre-filtering: {e}", exc_info=True)
+        pass
+
+    detected_obs_to_save_batch = []
+
+    for i in range(len(ob_results_df)):
+        ob_type_val = ob_results_df['OB'].iloc[i] 
+        ob_top_float = ob_results_df['Top'].iloc[i]
+        ob_bottom_float = ob_results_df['Bottom'].iloc[i]
+        formation_time_dt = ob_results_df.index[i].to_pydatetime()
+        ob_volume_float = ob_results_df['OBVolume'].iloc[i]
+        ob_percentage_float = ob_results_df['Percentage'].iloc[i]
+
+        ob_type_str = "Bullish" if ob_type_val == 1 else "Bearish"
+
+        ob_top_dec = utils.to_decimal_or_none(ob_top_float)
+        ob_bottom_dec = utils.to_decimal_or_none(ob_bottom_float)
+
+        # MODIFIKASI INI: Periksa dan tangani Decimal('NaN') untuk harga top/bottom OB
+        if ob_top_dec is not None and ob_top_dec.is_nan():
+            ob_top_dec = None # Set ke None jika NaN
+            logger.warning(f"OB Top Price is NaN for OB at {formation_time_dt}. Setting to None.")
+        if ob_bottom_dec is not None and ob_bottom_dec.is_nan():
+            ob_bottom_dec = None # Set ke None jika NaN
+            logger.warning(f"OB Bottom Price is NaN for OB at {formation_time_dt}. Setting to None.")
+
+        
+        # MODIFIKASI INI: Pastikan ob_volume_float bukan NaN sebelum konversi ke Decimal
+        ob_volume_dec = None # Default ke None di awal
+        if ob_volume_float is not None and pd.notna(ob_volume_float):
+            try:
+                temp_ob_volume_dec = utils.to_decimal_or_none(ob_volume_float)
+                if temp_ob_volume_dec is not None and not temp_ob_volume_dec.is_nan(): # Pastikan bukan None dan bukan Decimal('NaN')
+                    ob_volume_dec = temp_ob_volume_dec
+                else:
+                    logger.warning(f"OB Volume float '{ob_volume_float}' (tipe: {type(ob_volume_float)}) dikonversi menjadi None atau Decimal('NaN'). Disetel ke None.")
+            except Exception as e:
+                logger.warning(f"OB Volume float '{ob_volume_float}' (tipe: {type(ob_volume_float)}) menyebabkan error saat konversi ke Decimal: {e}. Disetel ke None.")
+        else:
+            logger.debug(f"OB Volume float adalah NaN/None untuk OB di {formation_time_dt}. Disetel ke None.")
+        # AKHIR MODIFIKASI
+
+        ob_percentage_dec = utils.to_decimal_or_none(ob_percentage_float)
+
+        if ob_top_dec is None or ob_bottom_dec is None: # Lanjutkan jika harga top/bottom tidak valid
+            continue
+
+        # --- MULAI KODE MODIFIKASI UNTUK PERHITUNGAN strength_score OB ---
+        calculated_ob_strength = 0
+
+        # Dapatkan lilin OB itu sendiri dari df_processed (yang sudah di-rename dan float)
+        ob_candle_data = df_processed[df_processed.index == formation_time_dt]
+        if not ob_candle_data.empty:
+            ob_candle_open = ob_candle_data['open'].iloc[0]
+            ob_candle_close = ob_candle_data['close'].iloc[0]
+            ob_candle_high = ob_candle_data['high'].iloc[0]
+            ob_candle_low = ob_candle_data['low'].iloc[0]
+            ob_candle_volume = ob_candle_data['volume'].iloc[0]
+
+            # 1. Ukuran Body Lilin OB (semakin besar body, semakin kuat)
+            ob_body_size = abs(ob_candle_close - ob_candle_open)
+            ob_range_size = ob_candle_high - ob_candle_low
+            if ob_range_size > 0:
+                body_to_range_ratio = ob_body_size / ob_range_size
+                if body_to_range_ratio >= ob_min_impulsive_candle_body_percent:
+                    calculated_ob_strength += 1 
+
+            # 2. Volume Lilin OB (semakin tinggi volume, semakin kuat)
+            if ob_candle_volume is not None and ob_volume_dec is not None and ob_volume_dec > 0:
+                calculated_ob_strength += int(ob_volume_dec / Decimal('1000') * ob_volume_factor_multiplier) 
+
+            # 3. Impulsive Move Setelah OB (semakin besar move, semakin kuat OB)
+            impulsive_move_candles = df_processed[df_processed.index > formation_time_dt].iloc[:2] 
+            if not impulsive_move_candles.empty:
+                first_impulsive_candle = impulsive_move_candles.iloc[0]
+                
+                impulsive_move_abs = abs(utils.to_decimal_or_none(first_impulsive_candle['close']) - utils.to_decimal_or_none(ob_candle_close))
+                
+                if current_atr_value is not None and current_atr_value > Decimal('0.0'):
+                    if impulsive_move_abs > (current_atr_value * ob_min_impulsive_move_multiplier):
+                        calculated_ob_strength += 2 
+                        logger.debug(f"OB Strength: Impulsive move ({float(impulsive_move_abs):.5f}) > ATR x Multiplier ({float(current_atr_value * ob_min_impulsive_move_multiplier):.5f}). +2 Strength.")
+                else:
+                    ob_range_dec = ob_top_dec - ob_bottom_dec
+                    if ob_range_dec > 0 and impulsive_move_abs > (ob_range_dec * ob_min_impulsive_move_multiplier):
+                        calculated_ob_strength += 2
+                        logger.debug(f"OB Strength: Impulsive move ({float(impulsive_move_abs):.5f}) > OB Range x Multiplier ({float(ob_range_dec * ob_min_impulsive_move_multiplier):.5f}). +2 Strength (ATR Fallback).")
+
+        # --- AKHIR KODE MODIFIKASI UNTUK PERHITUNGAN strength_score OB ---
+
+        ob_type_str = "Bullish" if ob_type_val == 1 else "Bearish" # Pastikan ob_type_str didefinisikan
+
+        new_key = (symbol_param, timeframe_str, ob_type_str, formation_time_dt.replace(microsecond=0).isoformat())
+        if new_key not in existing_ob_keys:
+            detected_obs_to_save_batch.append({
+                "symbol": symbol_param, "timeframe": timeframe_str,
+                "type": ob_type_str,
+                "ob_top_price": ob_top_dec, "ob_bottom_price": ob_bottom_dec,
+                "formation_time_utc": formation_time_dt,
+                "is_mitigated": pd.notna(ob_results_df['MitigatedIndex'].iloc[i]),
+                "last_mitigation_time_utc": ob_results_df.index[int(ob_results_df['MitigatedIndex'].iloc[i])].to_pydatetime() if pd.notna(ob_results_df['MitigatedIndex'].iloc[i]) else None,
+                "strength_score": calculated_ob_strength, 
+                "confluence_score": 0 
+            })
+            existing_ob_keys.add(new_key)
+            logger.debug(f"Order Block {ob_type_str} terdeteksi di {timeframe_str} pada {formation_time_dt} (Strength: {calculated_ob_strength}).")
+
+    if detected_obs_to_save_batch:
+        try:
+            database_manager.save_order_blocks_batch(detected_obs_to_save_batch, []) # <--- MODIFIKASI INI
+            processed_count += len(detected_obs_to_save_batch)
+            logger.info(f"BACKFILL WORKER: Berhasil menyimpan {len(detected_obs_to_save_batch)} Order Blocks baru unik untuk {symbol_param} {timeframe_str}.")
+        except Exception as e:
+            logger.error(f"BACKFILL WORKER: Gagal menyimpan Order Blocks batch: {e}", exc_info=True)
+
+    logger.info(f"Selesai mendeteksi Order Blocks BARU historis untuk {symbol_param} {timeframe_str}. Deteksi: {processed_count}.")
+    return processed_count
+
+def _detect_new_order_blocks_historically(symbol_param: str, timeframe_str: str, candles_df: pd.DataFrame, current_atr_value: Decimal):
+    """
+    Mendeteksi Order Blocks (OB) baru secara historis.
+    Menyimpan OB baru ke database secara batch dengan deduplikasi.
+    Menggunakan ATR adaptif dan faktor-faktor lain untuk menghitung strength_score.
+    Args:
+        symbol_param (str): Simbol trading.
+        timeframe_str (str): Timeframe.
+        candles_df (pd.DataFrame): DataFrame candle historis (sudah dalam format float).
+        current_atr_value (Decimal): Nilai ATR saat ini untuk timeframe ini.
+    """
+    logger.info(f"Mendeteksi Order Blocks BARU historis untuk {symbol_param} {timeframe_str}...")
+    processed_count = 0 # <--- PASTIKAN BARIS INI ADA DI SINI
+
+    if candles_df.empty or len(candles_df) < config.RuleBasedStrategy.OB_SHOULDER_LENGTH + 2:
+        logger.debug(f"Tidak cukup lilin ({len(candles_df)}) untuk deteksi Order Blocks historis di {timeframe_str}.")
+        return 0 # Perbaikan: return 0 jika tidak ada cukup lilin
+
+    # Pastikan _SYMBOL_POINT_VALUE sudah diinisialisasi
+    if globals().get('_SYMBOL_POINT_VALUE') is None:
+        globals().get('_initialize_symbol_point_value')()
+    if globals().get('_SYMBOL_POINT_VALUE') is None:
+        logger.error(f"Nilai POINT untuk {symbol_param} tidak tersedia. Melewatkan deteksi Order Blocks.")
+        return 0 # Perbaikan: return 0 jika SYMBOL_POINT_VALUE tidak tersedia
+
+    # Ambil parameter konfigurasi baru
+    ob_min_impulsive_candle_body_percent = config.RuleBasedStrategy.OB_MIN_IMPULSIVE_CANDLE_BODY_PERCENT
+    ob_min_impulsive_move_multiplier = config.RuleBasedStrategy.OB_MIN_IMPULSIVE_MOVE_MULTIPLIER
+    ob_volume_factor_multiplier = config.RuleBasedStrategy.OB_VOLUME_FACTOR_MULTIPLIER
+
+    # Buat salinan DataFrame dan konversi kolom harga ke float untuk perhitungan internal
+    # Catatan: candles_df yang masuk ke sini sudah di-rename kolomnya dan float dari _backfill_single_timeframe_features
+    df_processed = candles_df.copy()
+    # Rename kolom dan konversi ke float untuk df_processed
+    df_processed = df_processed.rename(columns={
+        'open_price': 'open', 'high_price': 'high', 'low_price': 'low',
+        'close_price': 'close', 'tick_volume': 'volume', 'real_volume': 'real_volume', 'spread': 'spread' # <--- PASTIKAN real_volume dan spread juga ada di sini jika relevan
+    })
+    # KOREKSI: HANYA konversi kolom harga dan volume
+    for col in ['open', 'high', 'low', 'close', 'volume', 'real_volume', 'spread']: # <--- PASTIKAN LIST KOLOM INI
+        if col in df_processed.columns:
+            df_processed[col] = df_processed[col].apply(utils.to_float_or_none)
+
     # Hitung Swing Highs/Lows (diperlukan untuk _calculate_order_blocks_internal)
     swing_results_df = globals().get('_calculate_swing_highs_lows_internal')(df_processed, swing_length=config.AIAnalysts.SWING_EXT_BARS)
     if swing_results_df.empty:
@@ -6848,8 +7015,7 @@ def _detect_new_order_blocks_historically(symbol_param: str, timeframe_str: str,
             ob_bottom_dec = None # Set ke None jika NaN
             logger.warning(f"OB Bottom Price is NaN for OB at {formation_time_dt}. Setting to None.")
 
-        
-        # MODIFIKASI INI: Pastikan ob_volume_float bukan NaN sebelum konversi ke Decimal
+        # KOREKSI: Pastikan ob_volume_float bukan NaN sebelum konversi ke Decimal
         ob_volume_dec = None # Default ke None di awal
         if ob_volume_float is not None and pd.notna(ob_volume_float):
             try:
@@ -6862,35 +7028,23 @@ def _detect_new_order_blocks_historically(symbol_param: str, timeframe_str: str,
                 logger.warning(f"OB Volume float '{ob_volume_float}' (tipe: {type(ob_volume_float)}) menyebabkan error saat konversi ke Decimal: {e}. Disetel ke None.")
         else:
             logger.debug(f"OB Volume float adalah NaN/None untuk OB di {formation_time_dt}. Disetel ke None.")
-        # AKHIR MODIFIKASI
 
         ob_percentage_dec = utils.to_decimal_or_none(ob_percentage_float)
 
-        if ob_top_dec is None or ob_bottom_dec is None: # Lanjutkan jika harga top/bottom tidak valid
+        if ob_top_dec is None or ob_bottom_dec is None:
             continue
 
         # --- MULAI KODE MODIFIKASI UNTUK PERHITUNGAN strength_score OB ---
         calculated_ob_strength = 0
 
         # Dapatkan lilin OB itu sendiri dari df_processed (yang sudah di-rename dan float)
-        # Ambil lilin dengan indeks waktu yang sama dengan OB
-        ob_candle_data = df_processed.loc[[formation_time_dt]] 
-
+        ob_candle_data = df_processed[df_processed.index == formation_time_dt]
         if not ob_candle_data.empty:
             ob_candle_open = ob_candle_data['open'].iloc[0]
             ob_candle_close = ob_candle_data['close'].iloc[0]
             ob_candle_high = ob_candle_data['high'].iloc[0]
             ob_candle_low = ob_candle_data['low'].iloc[0]
-            
-            # --- Akses volume dari _get_available_volume_series() untuk lilin OB ---
-            # Pastikan ini mengambil volume yang sudah difilter (real_volume/tick_volume)
-            ob_candle_volume_series = utils._get_available_volume_series(
-                df_processed.loc[[formation_time_dt]].copy(), # Hanya ambil satu lilin
-                timeframe_str
-            )
-            ob_candle_volume = ob_candle_volume_series.iloc[0] if not ob_candle_volume_series.empty else Decimal('0.0')
-            # --- AKHIR AKSES VOLUME ---
-
+            ob_candle_volume = ob_candle_data['volume'].iloc[0]
 
             # 1. Ukuran Body Lilin OB (semakin besar body, semakin kuat)
             ob_body_size = abs(ob_candle_close - ob_candle_open)
@@ -6901,11 +7055,8 @@ def _detect_new_order_blocks_historically(symbol_param: str, timeframe_str: str,
                     calculated_ob_strength += 1 
 
             # 2. Volume Lilin OB (semakin tinggi volume, semakin kuat)
-            # GUNAKAN `ob_candle_volume` yang sudah berasal dari _get_available_volume_series
-            if ob_candle_volume is not None and ob_candle_volume > Decimal('0.0'):
-                # Multiplier sudah diatur di main.py berdasarkan ketersediaan real_volume
-                # Jadi, ini akan menggunakan 0.0 jika real_volume tidak ada, atau nilai lain jika ada.
-                calculated_ob_strength += int(ob_candle_volume / Decimal('1000') * config.RuleBasedStrategy.OB_VOLUME_FACTOR_MULTIPLIER) 
+            if ob_candle_volume is not None and ob_volume_dec is not None and ob_volume_dec > 0:
+                calculated_ob_strength += int(ob_volume_dec / Decimal('1000') * ob_volume_factor_multiplier) 
 
             # 3. Impulsive Move Setelah OB (semakin besar move, semakin kuat OB)
             impulsive_move_candles = df_processed[df_processed.index > formation_time_dt].iloc[:2] 
@@ -6926,8 +7077,6 @@ def _detect_new_order_blocks_historically(symbol_param: str, timeframe_str: str,
 
         # --- AKHIR KODE MODIFIKASI UNTUK PERHITUNGAN strength_score OB ---
 
-        ob_type_str = "Bullish" if ob_type_val == 1 else "Bearish" # Pastikan ob_type_str didefinisikan
-
         new_key = (symbol_param, timeframe_str, ob_type_str, formation_time_dt.replace(microsecond=0).isoformat())
         if new_key not in existing_ob_keys:
             detected_obs_to_save_batch.append({
@@ -6945,7 +7094,7 @@ def _detect_new_order_blocks_historically(symbol_param: str, timeframe_str: str,
 
     if detected_obs_to_save_batch:
         try:
-            database_manager.save_order_blocks_batch(detected_obs_to_save_batch, [])
+            database_manager.save_order_blocks_batch(detected_obs_to_save_batch, []) # <--- MODIFIKASI INI
             processed_count += len(detected_obs_to_save_batch)
             logger.info(f"BACKFILL WORKER: Berhasil menyimpan {len(detected_obs_to_save_batch)} Order Blocks baru unik untuk {symbol_param} {timeframe_str}.")
         except Exception as e:
@@ -7380,8 +7529,8 @@ def _detect_new_fair_value_gaps_historically(symbol_param: str, timeframe_str: s
         return 0
     
     min_fvg_value = config.AIAnalysts.FVG_MIN_DOLLARS
-    fvg_min_candle_body_percent_for_strength = config.RuleBasedStrategy.CANDLE_BODY_MIN_RATIO # <-- Menggunakan properti yang benar
-    fvg_volume_factor_for_strength = config.RuleBasedStrategy.FVG_VOLUME_FACTOR_FOR_STRENGTH # <-- Ini yang akan diubah di main.py
+    fvg_min_candle_body_percent_for_strength = config.RuleBasedStrategy.FVG_MIN_CANDLE_BODY_PERCENT_FOR_STRENGTH
+    fvg_volume_factor_for_strength = config.RuleBasedStrategy.FVG_VOLUME_FACTOR_FOR_STRENGTH
     
     if current_atr_value is not None and current_atr_value > Decimal('0.0'):
         min_fvg_value = current_atr_value * config.MarketData.ATR_MULTIPLIER_FOR_TOLERANCE 
@@ -7397,12 +7546,12 @@ def _detect_new_fair_value_gaps_historically(symbol_param: str, timeframe_str: s
         'high_price': 'high',
         'low_price': 'low',
         'close_price': 'close',
-        'tick_volume': 'tick_volume', # <--- PASTIKAN nama kolom asli
-        'real_volume': 'real_volume', # <--- PASTIKAN nama kolom asli
+        'tick_volume': 'volume',
+        'real_volume': 'real_volume',
         'spread': 'spread'
     })
 
-    for col in ['open', 'high', 'low', 'close', 'tick_volume', 'real_volume', 'spread']: # <-- Pastikan semua kolom relevan
+    for col in ['open', 'high', 'low', 'close', 'volume', 'real_volume', 'spread']:
         if col in df_processed.columns:
             df_processed[col] = df_processed[col].apply(utils.to_float_or_none)
             if col in ['open', 'high', 'low', 'close']:
@@ -7465,7 +7614,6 @@ def _detect_new_fair_value_gaps_historically(symbol_param: str, timeframe_str: s
                     fvg_top_price = candle_0['low']
                     fvg_bottom_price = candle_2['high']
                     is_fvg_valid = True
-                    # logger.debug(f"FVG Bullish deteksi: {fvg_bottom_price}-{fvg_top_price} di {timeframe_str} pada {candle_1.name.to_pydatetime()}")
 
             elif candle_0['high'] < candle_2['low']:
                 gap_size = candle_2['low'] - candle_0['high']
@@ -7474,13 +7622,13 @@ def _detect_new_fair_value_gaps_historically(symbol_param: str, timeframe_str: s
                     fvg_top_price = candle_2['low']
                     fvg_bottom_price = candle_0['high']
                     is_fvg_valid = True
-                    # logger.debug(f"FVG Bearish deteksi: {fvg_bottom_price}-{fvg_top_price} di {timeframe_str} pada {candle_1.name.to_pydatetime()}")
 
             if is_fvg_valid:
                 formation_time = candle_1.name.to_pydatetime()
                 
                 # --- Perbaikan: AKSES FV_RESULTS_DF PADA INDEKS LILIN TENGAH (i-1) ---
                 # Menggunakan .loc[candle_1.name] untuk akses yang lebih andal berdasarkan indeks waktu
+                # Ini akan mengambil baris yang benar dari fvg_results_df (yang memiliki indeks waktu yang sama dengan df_processed)
                 fvg_result_for_current_pattern = fvg_results_df.loc[candle_1.name] 
 
                 # Perhitungan strength_score FVG ---
@@ -7493,22 +7641,13 @@ def _detect_new_fair_value_gaps_historically(symbol_param: str, timeframe_str: s
 
                     if impulsive_range_size > 0:
                         body_to_range_ratio = impulsive_body_size / impulsive_range_size
-                        if body_to_range_ratio >= fvg_min_candle_body_percent_for_strength: # <-- Menggunakan parameter dari config
+                        if body_to_range_ratio >= fvg_min_candle_body_percent_for_strength:
                             calculated_fvg_strength += 1 
 
-                    # --- AKSES VOLUME MENGGUNAKAN _get_available_volume_series ---
-                    # Dapatkan volume untuk lilin impulsif
-                    impulsive_candle_volume_series = utils._get_available_volume_series(
-                        df_processed.loc[[impulsive_candle_for_strength.name]].copy(), # Hanya ambil satu lilin
-                        timeframe_str
-                    )
-                    impulsive_candle_volume = impulsive_candle_volume_series.iloc[0] if not impulsive_candle_volume_series.empty else Decimal('0.0')
-                    # --- AKHIR AKSES VOLUME ---
-
-                    if impulsive_candle_volume is not None and impulsive_candle_volume > Decimal('0.0'):
-                        # Multiplier sudah diatur di main.py berdasarkan ketersediaan real_volume
-                        # Ini akan menggunakan 0.0 jika real_volume tidak ada, atau nilai lain jika ada.
-                        calculated_fvg_strength += int(impulsive_candle_volume / Decimal('1000') * fvg_volume_factor_for_strength)
+                    if impulsive_candle_for_strength['volume'] is not None and pd.notna(impulsive_candle_for_strength['volume']):
+                        volume_dec = utils.to_decimal_or_none(impulsive_candle_for_strength['volume'])
+                        if volume_dec is not None and volume_dec > 0:
+                            calculated_fvg_strength += int(volume_dec / Decimal('1000') * fvg_volume_factor_for_strength)
 
                 new_fvg_key = (symbol_param, timeframe_str, fvg_type, formation_time.replace(microsecond=0).isoformat())
                 
@@ -7541,7 +7680,7 @@ def _detect_new_fair_value_gaps_historically(symbol_param: str, timeframe_str: s
                         "last_fill_time_utc": last_fill_time,
                         "retest_count": 0,
                         "last_retest_time_utc": None,
-                        "strength_score": calculated_fvg_strength # <--- GUNAKAN SKOR YANG DIHITUNG DI SINI
+                        "strength_score": calculated_fvg_strength
                     })
                     existing_fvg_keys.add(new_fvg_key)
                     logger.debug(f"FVG {fvg_type} terdeteksi di {timeframe_str} pada {formation_time} (Strength: {calculated_fvg_strength}).")
@@ -7556,7 +7695,7 @@ def _detect_new_fair_value_gaps_historically(symbol_param: str, timeframe_str: s
                         logger.error(f"BACKFILL WORKER: Gagal auto-save FVG batch: {e}", exc_info=True)
                         detected_fvgs_to_save_batch = []
 
-    except Exception as e: 
+    except Exception as e:
         logger.error(f"Error saat mendeteksi FVG BARU historis untuk {symbol_param} {timeframe_str}: {e}", exc_info=True)
     finally:
         if detected_fvgs_to_save_batch:

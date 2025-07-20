@@ -11,7 +11,7 @@ import random # Untuk simulasi slippage dinamis
 
 # Import modul yang sudah ada
 import database_manager
-import config
+from config import config as app_config # Baris ini diubah
 import mt5_connector
 import ai_analyzer 
 import ai_consensus_manager 
@@ -269,30 +269,30 @@ class BacktestManager:
         self.symbol = symbol 
         self.initial_balance = Decimal('10000.00') 
         
-        self.commission_per_lot = config.Trading.COMMISSION_PER_LOT
-        self.swap_rate_buy_per_day = config.Trading.SWAP_RATE_PER_LOT_BUY
-        self.swap_rate_sell_per_day = config.Trading.SWAP_RATE_PER_LOT_SELL
+        self.commission_per_lot = app_config.Trading.COMMISSION_PER_LOT # Baris ini diubah
+        self.swap_rate_buy_per_day = app_config.Trading.SWAP_RATE_PER_LOT_BUY # Baris ini diubah
+        self.swap_rate_sell_per_day = app_config.Trading.SWAP_RATE_PER_LOT_SELL # Baris ini diubah
 
-        self.point_value = config.TRADING_SYMBOL_POINT_VALUE 
-        self.PIP_UNIT_IN_DOLLAR = config.PIP_UNIT_IN_DOLLAR 
+        self.point_value = app_config.TRADING_SYMBOL_POINT_VALUE # Baris ini diubah
+        self.PIP_UNIT_IN_DOLLAR = app_config.PIP_UNIT_IN_DOLLAR # Baris ini diubah
         logger.debug(f"DEBUG BM: __init__ point_value={self.point_value}, PIP_UNIT_IN_DOLLAR={self.PIP_UNIT_IN_DOLLAR}")
     
         self.dollar_per_point_per_0_01_lot = self.point_value * (Decimal('1.0') / Decimal('0.01'))
         self.pip_value_per_point = self.dollar_per_point_per_0_01_lot 
 
-        self.trailing_stop_pips = Decimal(str(config.Trading.TRAILING_STOP_PIPS))
-        self.trailing_stop_step_pips = Decimal(str(config.Trading.TRAILING_STOP_STEP_PIPS))
-        self.backtest_hit_tolerance_points = config.Trading.BACKTEST_HIT_TOLERANCE_POINTS
+        self.trailing_stop_pips = Decimal(str(app_config.Trading.TRAILING_STOP_PIPS)) # Baris ini diubah
+        self.trailing_stop_step_pips = Decimal(str(app_config.Trading.TRAILING_STOP_STEP_PIPS)) # Baris ini diubah
+        self.backtest_hit_tolerance_points = app_config.Trading.BACKTEST_HIT_TOLERANCE_POINTS # Baris ini diubah
         
         # New: Dynamic Spread & Slippage ranges
-        self.min_spread_points = Decimal(str(config.Trading.MIN_SPREAD_POINTS))
-        self.max_spread_points = Decimal(str(config.Trading.MAX_SPREAD_POINTS))
-        self.min_slippage_points = Decimal(str(config.Trading.MIN_SLIPPAGE_POINTS))
-        self.max_slippage_points = Decimal(str(config.Trading.MAX_SLIPPAGE_POINTS))
+        self.min_spread_points = Decimal(str(app_config.Trading.MIN_SPREAD_POINTS)) # Baris ini diubah
+        self.max_spread_points = Decimal(str(app_config.Trading.MAX_SPREAD_POINTS)) # Baris ini diubah
+        self.min_slippage_points = Decimal(str(app_config.Trading.MIN_SLIPPAGE_POINTS)) # Baris ini diubah
+        self.max_slippage_points = Decimal(str(app_config.Trading.MAX_SLIPPAGE_POINTS)) # Baris ini diubah
 
         # New: Risk per trade and max hold duration
-        self.risk_percent_per_trade = Decimal(str(config.Trading.RISK_PERCENT_PER_TRADE))
-        self.max_position_hold_time = timedelta(minutes=config.Trading.MAX_POSITION_HOLD_MINUTES)
+        self.risk_percent_per_trade = Decimal(str(app_config.Trading.RISK_PERCENT_PER_TRADE)) # Baris ini diubah
+        self.max_position_hold_time = timedelta(minutes=app_config.Trading.MAX_POSITION_HOLD_MINUTES) # Baris ini diubah
 
         self.balance_history = []
         self.closed_trade_profits_losses = []
@@ -363,11 +363,11 @@ class BacktestManager:
 
         # --- PERBAIKAN UNTUK TP_LEVELS DI SIMULATEDTRADE ---
         # Jika TP1 suggestion adalah None, kirim list kosong ke SimulatedTrade untuk TP levels.
-        # Jika tidak None, gunakan PARTIAL_TP_LEVELS dari config.
+        # Jika tidak None, gunakan PARTIAL_TP_LEVELS dari app_config.
         if tp1_sugg_dec is None:
             tp_levels_for_sim_trade = []
         else:
-            tp_levels_for_sim_trade = config.Trading.PARTIAL_TP_LEVELS
+            tp_levels_for_sim_trade = app_config.Trading.PARTIAL_TP_LEVELS # Baris ini diubah
         # --- AKHIR PERBAIKAN ---
 
         # New: Calculate volume based on risk percentage
@@ -384,7 +384,7 @@ class BacktestManager:
             risk_points = abs(actual_entry_price - adjusted_sl_price) / self.point_value if adjusted_sl_price is not None else Decimal('0.0')
 
             if risk_points > Decimal('0.0'):
-                # Assuming config.TRADING_SYMBOL_POINT_VALUE is value per 1 unit of volume (e.g., 1 USD per pip for EURUSD 1 lot = 100,000 units)
+                # Assuming app_config.TRADING_SYMBOL_POINT_VALUE is value per 1 unit of volume (e.g., 1 USD per pip for EURUSD 1 lot = 100,000 units)
                 # To get volume, we need to know how much 1 lot moves per point.
                 # If point_value is USD per point per 1 unit, then risk_per_unit = risk_points * point_value
                 # Volume = Risk Amount / (Risk per unit * units per lot)
@@ -398,16 +398,16 @@ class BacktestManager:
                 total_volume = max(min_lot_size, volume_from_risk).quantize(Decimal('0.01')) # Round to nearest 0.01 lot
                 
                 # Cap volume at a reasonable maximum if necessary, or based on initial balance
-                # if total_volume > config.Trading.MAX_TRADE_VOLUME:
-                #     total_volume = config.Trading.MAX_TRADE_VOLUME
+                # if total_volume > app_config.Trading.MAX_TRADE_VOLUME:
+                #     total_volume = app_config.Trading.MAX_TRADE_VOLUME
                 logger.debug(f"DEBUG BM:_simulate_trade_execution: Calculated volume from risk: {float(total_volume):.2f} (Risk Amount: {float(risk_per_trade_amount):.2f}, Risk Pts: {float(risk_points):.2f})")
             else:
                 print(f"DEBUG_PRINT_BM: _simulate_trade_execution: Risk points for volume calculation is zero. Cannot open trade.")
                 return None
         else:
             # Fallback to fixed volume if SL is None or point_value is zero
-            print(f"DEBUG_PRINT_BM: _simulate_trade_execution: SL or Point Value is None/Zero. Using fixed volume from config.")
-            total_volume = config.Trading.AUTO_TRADE_VOLUME 
+            print(f"DEBUG_PRINT_BM: _simulate_trade_execution: SL or Point Value is None/Zero. Using fixed volume from app_config.")
+            total_volume = app_config.Trading.AUTO_TRADE_VOLUME # Baris ini diubah
             
         if total_volume <= Decimal('0.0'):
             print(f"DEBUG_PRINT_BM: _simulate_trade_execution: Calculated volume is zero or negative. Cannot open trade.")
@@ -542,7 +542,7 @@ class BacktestManager:
         total_iterations = len(df_candles)
         progress_interval = max(1, total_iterations // 10)
 
-        logger.debug(f"DEBUG BM: Mulai run_backtest. Config: MIN_SL_PIPS={config.Trading.MIN_SL_PIPS}, MIN_TP_PIPS={config.Trading.MIN_TP_PIPS}")
+        logger.debug(f"DEBUG BM: Mulai run_backtest. Config: MIN_SL_PIPS={app_config.Trading.MIN_SL_PIPS}, MIN_TP_PIPS={app_config.Trading.MIN_TP_PIPS}") # Baris ini diubah
         logger.debug(f"DEBUG BM: Initial df_candles length: {len(df_candles)}")
         if not df_candles.empty:
             logger.debug(f"DEBUG BM: First candle: {df_candles.index[0]}, Close: {df_candles['close_price'].iloc[0]}")
@@ -611,7 +611,11 @@ class BacktestManager:
                     if tp_hit_status == 'CLOSED_FULLY':
                         final_pnl_for_trade = self._calculate_total_pnl_for_trade(position, tp_hit_price_at_close)
                         current_balance += final_pnl_for_trade
-                        self._record_closed_trade_metrics(final_pnl_for_trade, current_time_for_signal, position.ticket, exit_price_for_log, exit_reason_for_log, True, local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses)
+                        # === PERUBAHAN DI SINI ===
+                        local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, \
+                        consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses = \
+                            self._record_closed_trade_metrics(final_pnl_for_trade, current_time_for_signal, position.ticket, exit_price_for_log, exit_reason_for_log, True, local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses)
+                        # ==========================
                         if tp_hit_status == 'tp1': local_tp1_hit_count += 1
                         elif tp_hit_status == 'tp2': local_tp2_hit_count += 1
                         elif tp_hit_status == 'tp3': local_tp3_hit_count += 1
@@ -640,7 +644,11 @@ class BacktestManager:
 
                         final_pnl_for_trade = self._calculate_total_pnl_for_trade(position, sl_hit_price)
                         current_balance += final_pnl_for_trade
-                        self._record_closed_trade_metrics(final_pnl_for_trade, current_time_for_signal, position.ticket, exit_price_for_log, exit_reason_for_log, True, local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses)
+                        # === PERUBAHAN DI SINI ===
+                        local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, \
+                        consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses = \
+                            self._record_closed_trade_metrics(final_pnl_for_trade, current_time_for_signal, position.ticket, exit_price_for_log, exit_reason_for_log, True, local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses)
+                        # ==========================
                         del self.open_positions[ticket]
                         logger.debug(f"DEBUG BM: Posisi {position.type} ({position.ticket}) ditutup (oleh {exit_reason_for_log}). P/L: {float(final_pnl_for_trade):.7f}. Saldo: {float(current_balance):.7f}")
                     
@@ -652,7 +660,11 @@ class BacktestManager:
                         exit_reason_for_log = "Time Limit"
                         final_pnl_for_trade = self._calculate_total_pnl_for_trade(position, exit_price_for_log)
                         current_balance += final_pnl_for_trade
-                        self._record_closed_trade_metrics(final_pnl_for_trade, current_time_for_signal, position.ticket, exit_price_for_log, exit_reason_for_log, True, local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses)
+                        # === PERUBAHAN DI SINI ===
+                        local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, \
+                        consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses = \
+                            self._record_closed_trade_metrics(final_pnl_for_trade, current_time_for_signal, position.ticket, exit_price_for_log, exit_reason_for_log, True, local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses)
+                        # ==========================
                         del self.open_positions[ticket]
                         local_closed_by_time_limit_count += 1
                         logger.debug(f"DEBUG BM: Posisi {position.type} ({position.ticket}) ditutup oleh batas waktu. P/L: {float(final_pnl_for_trade):.7f}. Saldo: {float(current_balance):.7f}")
@@ -684,7 +696,11 @@ class BacktestManager:
 
                         final_pnl_for_trade = self._calculate_total_pnl_for_trade(position, exit_price_for_log)
                         current_balance += final_pnl_for_trade
-                        self._record_closed_trade_metrics(final_pnl_for_trade, current_time_for_signal, position.ticket, exit_price_for_log, exit_reason_for_log, True, local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses)
+                        # === PERUBAHAN DI SINI ===
+                        local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, \
+                        consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses = \
+                            self._record_closed_trade_metrics(final_pnl_for_trade, current_time_for_signal, position.ticket, exit_price_for_log, exit_reason_for_log, True, local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses)
+                        # ==========================
                         del self.open_positions[ticket]
                         local_closed_by_opposite_signal_count += 1
                         logger.debug(f"DEBUG BM: Posisi {position.type} ({position.ticket}) ditutup penuh oleh sinyal berlawanan {action}. P/L: {float(final_pnl_for_trade):.7f}. Saldo: {float(current_balance):.7f}")
@@ -705,8 +721,8 @@ class BacktestManager:
                 
                 print(f"DEBUG_PRINT_BM: Sinyal konversi Decimal: sl_sugg={float(sl_sugg) if sl_sugg else 'None'}, tp1_sugg={float(tp1_sugg) if tp1_sugg else 'None'}. Current Price for Signal: {float(current_price_for_signal_dec):.5f}")
 
-                min_sl_pips_dec = config.Trading.MIN_SL_PIPS 
-                min_tp_pips_dec = config.Trading.MIN_TP_PIPS
+                min_sl_pips_dec = app_config.Trading.MIN_SL_PIPS # Baris ini diubah
+                min_tp_pips_dec = app_config.Trading.MIN_TP_PIPS # Baris ini diubah
                 
                 trade_rejection_reason = ""
                 can_attempt_trade_execution = False
@@ -777,7 +793,11 @@ class BacktestManager:
 
             final_pnl_total = self._calculate_total_pnl_for_trade(open_position, exit_price_for_log)
             current_balance += final_pnl_total
-            self._record_closed_trade_metrics(final_pnl_total, df_candles.index[-1], open_position.ticket, exit_price_for_log, exit_reason_for_log, True, local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses)
+            # === PERUBAHAN DI SINI ===
+            local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, \
+            consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses = \
+                self._record_closed_trade_metrics(final_pnl_total, df_candles.index[-1], open_position.ticket, exit_price_for_log, exit_reason_for_log, True, local_total_trades, local_winning_trades, local_losing_trades, local_gross_profit, local_gross_loss, consecutive_wins, consecutive_losses, largest_win, largest_loss, max_consecutive_wins, max_consecutive_losses)
+            # ==========================
             del self.open_positions[ticket]
 
             logger.debug(f"DEBUG BM: Posisi terakhir ({open_position.ticket}) ditutup pada akhir backtest. Total P/L: {float(final_pnl_total):.7f}. Saldo Akhir: {float(current_balance):.7f}")
@@ -946,10 +966,10 @@ class BacktestManager:
 
                 candlestick_chart_filepath = chart_generator.generate_candlestick_chart(
                     symbol=self.symbol,
-                    timeframe=config.Trading.DEFAULT_TIMEFRAME,
+                    timeframe=app_config.Trading.DEFAULT_TIMEFRAME, # Baris ini diubah
                     candles_data=candles_data_for_chart.to_dict(orient='records'), 
                     simulated_trade_events=simulated_trade_events_for_chart, 
-                    filename=f"{self.symbol}_{config.Trading.DEFAULT_TIMEFRAME}_backtest_trades_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    filename=f"{self.symbol}_{app_config.Trading.DEFAULT_TIMEFRAME}_backtest_trades_{datetime.now().strftime('%Y%m%d%H%M%S')}" # Baris ini diubah
                 )
                 if candlestick_chart_filepath:
                     final_results['candlestick_chart_filepath'] = candlestick_chart_filepath

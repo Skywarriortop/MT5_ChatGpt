@@ -9,7 +9,7 @@ import time
 import re   
 
 import database_manager
-import config
+from config import config
 import market_data_processor
 import notification_service
 import auto_trade_manager

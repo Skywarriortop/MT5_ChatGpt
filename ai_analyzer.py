@@ -9,7 +9,7 @@ import time
 
 # Import modul lain yang dibutuhkan
 import database_manager
-import config
+from config import config
 import market_data_processor
 import notification_service
 import utils # Pastikan ini ada

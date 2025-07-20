@@ -1,7 +1,7 @@
 # auto_trade_manager.py
 import logging
 import mt5_connector
-import config
+from config import config
 import re
 from decimal import Decimal, getcontext # Import getcontext untuk presisi Decimal
 from datetime import datetime, timezone, timedelta

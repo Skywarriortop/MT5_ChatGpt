@@ -999,7 +999,7 @@ def create_app(app_config_instance):
                         f"Win Rate: \\\`{utils._escape_markdown(f'{results.get('win_rate', 'N/A'):.2f}%')}\\\`\n" \
                         f"Max Drawdown: \\\`{utils._escape_markdown(f'{results.get('max_drawdown_percent', 0.0):.2f}%')}\\\`\n" \
                         f"Profit Factor: \\\`{utils._escape_markdown(str(results.get('profit_factor', 'N/A')))}\\\`\n" \
-                        f"ROIC: \\\`{utils._escape_markdown(f'{results.get('roic_percent', 'N/A'):.2f}%')}\\\`\n" \
+                        f"ROIC: \`{utils._escape_markdown(results.get('roic_percent', 'N/A'))}\`\n" \
                         f"Sharpe Ratio: \\\`{utils._escape_markdown(str(results.get('sharpe_ratio', 'N/A')))}\\\`\n" \
                         f"Sortino Ratio: \\\`{utils._escape_markdown(str(results.get('sortino_ratio', 'N/A')))}\\\`\n" \
                         f"Calmar Ratio: \\\`{utils._escape_markdown(str(results.get('calmar_ratio', 'N/A')))}\\\`\n" \
